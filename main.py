@@ -3,21 +3,28 @@ import random
 import time
 from math import sqrt, log
 import numpy as np
+from numpy.typing import NDArray
 
 
-class ConnectFourState:
-    def __init__(self):
-        self.board = np.zeros((6, 7), dtype=int)
-        self.current_player = 1  # 1 for first player, -1 for second player
+HEIGHT = 6
+WIDTH = 7
+C = sqrt(2)
 
-    def copy(self):
-        new_state = ConnectFourState()
-        new_state.board = self.board.copy()
-        new_state.current_player = self.current_player
-        return new_state
+
+class State:
+    def __init__(
+        self,
+        board: NDArray[np.int8] = np.zeros((HEIGHT, WIDTH), dtype=np.int8),
+        starting_player: int = 1,
+    ):
+        self.board = board
+        self.current_player = starting_player
+
+    def clone(self):
+        return State(self.board.copy(), self.current_player)
 
     def get_valid_moves(self) -> List[int]:
-        return [col for col in range(7) if self.board[0][col] == 0]
+        return [col for col in range(WIDTH) if self.board[0][col] == 0]
 
     def make_move(self, column: int) -> bool:
         if column not in self.get_valid_moves():
@@ -67,7 +74,7 @@ class ConnectFourState:
 
 
 class MCTSNode:
-    def __init__(self, state: ConnectFourState, parent=None, parent_action=None):
+    def __init__(self, state: State, parent=None, parent_action=None):
         self.state = state
         self.parent = parent
         self.parent_action = parent_action
@@ -78,13 +85,12 @@ class MCTSNode:
 
     def uct_select_child(self) -> "MCTSNode":
         # UCT = wins/visits + C * sqrt(ln(parent_visits)/visits)
-        C = sqrt(2)
         return max(
             self.children,
             key=lambda c: c.wins / c.visits + C * sqrt(log(self.visits) / c.visits),
         )
 
-    def add_child(self, action: int, state: ConnectFourState) -> "MCTSNode":
+    def add_child(self, action: int, state: State) -> "MCTSNode":
         child = MCTSNode(state, self, action)
         self.untried_actions.remove(action)
         self.children.append(child)
@@ -95,82 +101,16 @@ class MCTSNode:
         self.wins += result
 
 
-class KnowledgeBase:
-    def __init__(self):
-        # Simple opening book implementation
-        self.opening_book = {
-            "empty_board": [3],  # Center column is generally good
-            "center_response": [2, 4],  # Respond near the center
-        }
-
-        # Pattern recognition weights
-        self.pattern_weights = {
-            "center_control": 3,
-            "double_threat": 5,
-            "blocking_move": 4,
-        }
-
-    def get_opening_move(self, state: ConnectFourState) -> Optional[int]:
-        # Simple opening book logic
-        if np.count_nonzero(state.board) == 0:
-            return random.choice(self.opening_book["empty_board"])
-        elif np.count_nonzero(state.board) == 1 and state.board[5][3] != 0:
-            return random.choice(self.opening_book["center_response"])
-        return None
-
-
-class CSPSolver:
-    def __init__(self):
-        self.threats = set()
-
-    def validate_move(self, state: ConnectFourState, column: int) -> bool:
-        if column < 0 or column >= 7:
-            return False
-        return column in state.get_valid_moves()
-
-    def detect_threats(self, state: ConnectFourState) -> List[Tuple[int, int]]:
-        # Simple threat detection
-        threats = []
-        for col in range(7):
-            if not self.validate_move(state, col):
-                continue
-
-            # Try move and check if it creates a win
-            test_state = state.copy()
-            test_state.make_move(col)
-            if test_state.check_winner() is not None:
-                threats.append((col, state.current_player))
-
-        return threats
-
-
-class ConnectFourAI:
-    def __init__(self, mcts_iterations=1000, max_time=3.0):
-        self.mcts_iterations = mcts_iterations
+class Agent:
+    def __init__(self, max_time=3.0):
         self.max_time = max_time
-        self.knowledge_base = KnowledgeBase()
-        self.csp_solver = CSPSolver()
+        # self.knowledge_base = KnowledgeBase()
+        # self.csp_solver = CSPSolver()
 
-    def get_move(self, state: ConnectFourState) -> int:
-        # 1. Check knowledge base for opening moves
-        opening_move = self.knowledge_base.get_opening_move(state)
-        if opening_move is not None:
-            return opening_move
-
-        # 2. Check for immediate threats using CSP
-        threats = self.csp_solver.detect_threats(state)
-        if threats:
-            # Respond to immediate threats
-            for col, player in threats:
-                if player == state.current_player:
-                    return col  # Winning move
-                elif self.csp_solver.validate_move(state, col):
-                    return col  # Blocking move
-
-        # 3. Use MCTS for general move selection
+    def get_move(self, state: State) -> int:
         return self._mcts_search(state)
 
-    def _mcts_search(self, state: ConnectFourState) -> int:
+    def _mcts_search(self, state: State) -> int:
         root = MCTSNode(state)
         end_time = time.time() + self.max_time
 
@@ -185,12 +125,12 @@ class ConnectFourAI:
             # Expansion
             if node.untried_actions != []:
                 action = random.choice(node.untried_actions)
-                state = node.state.copy()
+                state = node.state.clone()
                 state.make_move(action)
                 node = node.add_child(action, state)
 
             # Simulation
-            state = node.state.copy()
+            state = node.state.clone()
             while not state.get_valid_moves() == []:
                 winner = state.check_winner()
                 if winner is not None:
@@ -214,8 +154,8 @@ class ConnectFourAI:
 
 def main():
     # Initialize game
-    state = ConnectFourState()
-    ai = ConnectFourAI()
+    state = State()
+    agent = Agent()
 
     # Main game loop
     while True:
@@ -239,7 +179,7 @@ def main():
                 continue
         else:
             # AI player
-            move = ai.get_move(state)
+            move = agent.get_move(state)
             state.make_move(move)
             print(f"\nAI plays column {move}")
 
