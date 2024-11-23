@@ -45,30 +45,30 @@ class State:
         # Horizontal
         for row in range(6):
             for col in range(4):
-                window = self.board[row, col : col + 4]
-                if abs(sum(window)) == 4:
-                    return np.sign(sum(window))
+                window_sum = sum(self.board[row, col : col + 4])
+                if abs(window_sum) == 4:
+                    return np.sign(window_sum)
 
         # Vertical
         for row in range(3):
             for col in range(7):
-                window = self.board[row : row + 4, col]
-                if abs(sum(window)) == 4:
-                    return np.sign(sum(window))
+                window_sum = sum(self.board[row : row + 4, col])
+                if abs(window_sum) == 4:
+                    return np.sign(window_sum)
 
         # Diagonal (positive slope)
         for row in range(3):
             for col in range(4):
-                window = [self.board[row + i][col + i] for i in range(4)]
-                if abs(sum(window)) == 4:
-                    return np.sign(sum(window))
+                window_sum = sum([self.board[row + i][col + i] for i in range(4)])
+                if abs(window_sum) == 4:
+                    return np.sign(window_sum)
 
         # Diagonal (negative slope)
         for row in range(3, 6):
             for col in range(4):
-                window = [self.board[row - i][col + i] for i in range(4)]
-                if abs(sum(window)) == 4:
-                    return np.sign(sum(window))
+                window_sum = sum([self.board[row - i][col + i] for i in range(4)])
+                if abs(window_sum) == 4:
+                    return np.sign(window_sum)
 
         return None
 
@@ -104,8 +104,6 @@ class MCTSNode:
 class Agent:
     def __init__(self, max_time=3.0):
         self.max_time = max_time
-        # self.knowledge_base = KnowledgeBase()
-        # self.csp_solver = CSPSolver()
 
     def get_move(self, state: State) -> int:
         return self._mcts_search(state)
@@ -141,10 +139,7 @@ class Agent:
             # Backpropagation
             while node is not None:
                 winner = state.check_winner()
-                if winner is None:
-                    result = 0.5
-                else:
-                    result = 1 if winner == root.state.current_player else 0
+                result = 1 if winner == root.state.current_player else 0
                 node.update(result)
                 node = node.parent
 
