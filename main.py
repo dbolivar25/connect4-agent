@@ -39,32 +39,30 @@ class GameState:
 
     def check_winner(self) -> Optional[int]:
         # Horizontal
-        for row in range(6):
-            for col in range(4):
-                window_sum = sum(self.board[row, col : col + 4])
-                if abs(window_sum) == 4:
-                    return np.sign(window_sum)
+        windows = np.lib.stride_tricks.sliding_window_view(self.board, 4, axis=1)
+        sums = np.sum(windows, axis=3)
+        if np.any(np.abs(sums) == 4):
+            return int(np.sign(sums[np.abs(sums) == 4][0]))
 
         # Vertical
-        for row in range(3):
-            for col in range(7):
-                window_sum = sum(self.board[row : row + 4, col])
-                if abs(window_sum) == 4:
-                    return np.sign(window_sum)
+        windows = np.lib.stride_tricks.sliding_window_view(self.board, 4, axis=0)
+        sums = np.sum(windows, axis=2)
+        if np.any(np.abs(sums) == 4):
+            return int(np.sign(sums[np.abs(sums) == 4][0]))
 
         # Diagonal (positive slope)
         for row in range(3):
             for col in range(4):
-                window_sum = sum([self.board[row + i][col + i] for i in range(4)])
+                window_sum = sum(self.board[row + i][col + i] for i in range(4))
                 if abs(window_sum) == 4:
-                    return np.sign(window_sum)
+                    return int(np.sign(window_sum))
 
         # Diagonal (negative slope)
         for row in range(3, 6):
             for col in range(4):
-                window_sum = sum([self.board[row - i][col + i] for i in range(4)])
+                window_sum = sum(self.board[row - i][col + i] for i in range(4))
                 if abs(window_sum) == 4:
-                    return np.sign(window_sum)
+                    return int(np.sign(window_sum))
 
         return None
 
