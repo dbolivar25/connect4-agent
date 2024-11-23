@@ -51,18 +51,23 @@ class GameState:
             return int(np.sign(sums[np.abs(sums) == 4][0]))
 
         # Diagonal (positive slope)
-        for row in range(3):
-            for col in range(4):
-                window_sum = sum(self.board[row + i][col + i] for i in range(4))
-                if abs(window_sum) == 4:
-                    return int(np.sign(window_sum))
+        diags = []
+        for i in range(3):
+            for j in range(4):
+                diags.append(np.diagonal(self.board[i : i + 4, j : j + 4]))
+        diag_sums = np.sum(diags, axis=1)
+        if np.any(np.abs(diag_sums) == 4):
+            return int(np.sign(diag_sums[np.abs(diag_sums) == 4][0]))
 
         # Diagonal (negative slope)
-        for row in range(3, 6):
-            for col in range(4):
-                window_sum = sum(self.board[row - i][col + i] for i in range(4))
-                if abs(window_sum) == 4:
-                    return int(np.sign(window_sum))
+        flipped_board = np.flipud(self.board)
+        diags = []
+        for i in range(3):
+            for j in range(4):
+                diags.append(np.diagonal(flipped_board[i : i + 4, j : j + 4]))
+        diag_sums = np.sum(diags, axis=1)
+        if np.any(np.abs(diag_sums) == 4):
+            return int(np.sign(diag_sums[np.abs(diag_sums) == 4][0]))
 
         return None
 
