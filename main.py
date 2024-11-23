@@ -1,17 +1,17 @@
-from typing import List, Tuple, Optional
+from typing import List, Optional
 import random
 import time
 from math import sqrt, log
 import numpy as np
 from numpy.typing import NDArray
 
-
 HEIGHT = 6
 WIDTH = 7
+
 C = sqrt(2)
 
 
-class State:
+class GameState:
     def __init__(
         self,
         board: NDArray[np.int8] = np.zeros((HEIGHT, WIDTH), dtype=np.int8),
@@ -21,27 +21,23 @@ class State:
         self.current_player = starting_player
 
     def clone(self):
-        return State(self.board.copy(), self.current_player)
+        return GameState(self.board.copy(), self.current_player)
 
     def get_valid_moves(self) -> List[int]:
-        return [col for col in range(WIDTH) if self.board[0][col] == 0]
+        return [col for col in range(7) if self.board[0][col] == 0]
 
     def make_move(self, column: int) -> bool:
         if column not in self.get_valid_moves():
             return False
 
-        # Find the lowest empty row in the column
         for row in range(5, -1, -1):
             if self.board[row][column] == 0:
                 self.board[row][column] = self.current_player
-                self.current_player *= -1  # Switch player
+                self.current_player *= -1
                 return True
         return False
 
     def check_winner(self) -> Optional[int]:
-        # Check horizontal, vertical, and diagonal wins
-        # Returns 1 for player 1 win, -1 for player 2 win, None for no winner
-
         # Horizontal
         for row in range(6):
             for col in range(4):
@@ -74,45 +70,43 @@ class State:
 
 
 class MCTSNode:
-    def __init__(self, state: State, parent=None, parent_action=None):
+    def __init__(self, state: GameState, parent=None, parent_action=None):
         self.state = state
         self.parent = parent
         self.parent_action = parent_action
         self.children = []
-        self.wins = 0
+        self.score = 0.0
         self.visits = 0
         self.untried_actions = state.get_valid_moves()
 
     def uct_select_child(self) -> "MCTSNode":
-        # UCT = wins/visits + C * sqrt(ln(parent_visits)/visits)
         return max(
             self.children,
-            key=lambda c: c.wins / c.visits + C * sqrt(log(self.visits) / c.visits),
+            key=lambda c: c.score / c.visits + C * sqrt(log(self.visits) / c.visits),
         )
 
-    def add_child(self, action: int, state: State) -> "MCTSNode":
+    def add_child(self, action: int, state: GameState) -> "MCTSNode":
         child = MCTSNode(state, self, action)
         self.untried_actions.remove(action)
         self.children.append(child)
         return child
 
-    def update(self, result: int):
+    def update(self, result_score: float):
         self.visits += 1
-        self.wins += result
+        self.score += result_score
 
 
 class Agent:
     def __init__(self, max_time=3.0):
         self.max_time = max_time
 
-    def get_move(self, state: State) -> int:
+    def get_move(self, state: GameState) -> int:
         return self._mcts_search(state)
 
-    def _mcts_search(self, state: State) -> int:
+    def _mcts_search(self, state: GameState) -> int:
         root = MCTSNode(state)
         end_time = time.time() + self.max_time
 
-        # Run MCTS iterations
         while time.time() < end_time:
             node = root
 
@@ -139,31 +133,28 @@ class Agent:
             # Backpropagation
             while node is not None:
                 winner = state.check_winner()
-                result = 1 if winner == root.state.current_player else 0
+                if winner is None:
+                    result = 0.5
+                else:
+                    result = 1.0 if winner == root.state.current_player else 0.0
                 node.update(result)
                 node = node.parent
 
-        # Return the move of the most visited child
         return max(root.children, key=lambda c: c.visits).parent_action
 
 
 def main():
-    # Initialize game
-    state = State()
+    state = GameState()
     agent = Agent()
 
-    # Main game loop
     while True:
-        # Print current board
         print("\nCurrent board:")
         for row in state.board:
             print(
                 " ".join(map(lambda x: "O" if x == 1 else "X" if x == -1 else ".", row))
             )
 
-        # Get moves
         if state.current_player == 1:
-            # Human player
             try:
                 move = int(input("\nEnter your move (0-6): "))
                 if not state.make_move(move):
@@ -173,12 +164,10 @@ def main():
                 print("Invalid input! Please enter a number between 0 and 6.")
                 continue
         else:
-            # AI player
             move = agent.get_move(state)
             state.make_move(move)
             print(f"\nAI plays column {move}")
 
-        # Check for game end
         winner = state.check_winner()
         if winner is not None:
             print("\nFinal board:")
