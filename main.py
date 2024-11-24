@@ -1,3 +1,4 @@
+from sys import stderr
 from typing import List, Optional
 import random
 import time
@@ -14,7 +15,7 @@ C = sqrt(2)
 class GameState:
     def __init__(
         self,
-        board: NDArray[np.int8] = np.zeros((HEIGHT, WIDTH), dtype=np.int8),
+        board: NDArray[np.int8],
         starting_player: int = 1,
     ):
         self.board = board
@@ -40,13 +41,13 @@ class GameState:
     def check_winner(self) -> Optional[int]:
         # Horizontal
         windows = np.lib.stride_tricks.sliding_window_view(self.board, 4, axis=1)
-        sums = np.sum(windows, axis=3)
+        sums = np.sum(windows, axis=2)  # Changed from axis=3 to axis=2
         if np.any(np.abs(sums) == 4):
             return int(np.sign(sums[np.abs(sums) == 4][0]))
 
         # Vertical
         windows = np.lib.stride_tricks.sliding_window_view(self.board, 4, axis=0)
-        sums = np.sum(windows, axis=2)
+        sums = np.sum(windows, axis=2)  # This one was correct
         if np.any(np.abs(sums) == 4):
             return int(np.sign(sums[np.abs(sums) == 4][0]))
 
@@ -85,7 +86,11 @@ class MCTSNode:
     def uct_select_child(self) -> "MCTSNode":
         return max(
             self.children,
-            key=lambda c: c.score / c.visits + C * sqrt(log(self.visits) / c.visits),
+            key=lambda c: (
+                c.score / c.visits + C * sqrt(log(self.visits) / c.visits)
+                if c.visits != 0
+                else float("inf")
+            ),
         )
 
     def add_child(self, action: int, state: GameState) -> "MCTSNode":
@@ -104,7 +109,26 @@ class Agent:
         self.max_time = max_time
 
     def get_move(self, state: GameState) -> int:
-        return self._mcts_search(state)
+        return self._check_threats(state) or self._mcts_search(state)
+
+    def _check_threats(self, state: GameState) -> Optional[int]:
+        # Check for our winning move first
+        for move in state.get_valid_moves():
+            test_state = state.clone()
+            test_state.make_move(move)
+            if test_state.check_winner() == state.current_player:
+                return move
+
+        # Check for opponent's winning move that we must block
+        opponent = -state.current_player
+        for move in state.get_valid_moves():
+            test_state = state.clone()
+            test_state.current_player = opponent  # Temporarily switch player
+            test_state.make_move(move)
+            if test_state.check_winner() == opponent:
+                return move
+
+        return None
 
     def _mcts_search(self, state: GameState) -> int:
         root = MCTSNode(state)
@@ -131,6 +155,8 @@ class Agent:
                 if winner is not None:
                     break
                 valid_moves = state.get_valid_moves()
+                if not valid_moves:
+                    break
                 state.make_move(random.choice(valid_moves))
 
             # Backpropagation
@@ -147,7 +173,7 @@ class Agent:
 
 
 def main():
-    state = GameState()
+    state = GameState(np.zeros((HEIGHT, WIDTH), dtype=np.int8))
     agent = Agent()
 
     while True:
@@ -188,5 +214,87 @@ def main():
             break
 
 
+def play_agent_vs_agent(
+    num_games: int = 1, display_moves: bool = True, max_time: float = 1.0
+):
+    agent1 = Agent(max_time)
+    agent2 = Agent(max_time)
+    stats = {"agent1_wins": 0, "agent2_wins": 0, "draws": 0}
+
+    def display_board(board):
+        print("\nCurrent board:")
+        for row in board:
+            print(
+                " ".join(map(lambda x: "O" if x == 1 else "X" if x == -1 else ".", row))
+            )
+        print()  # Empty line for readability
+
+    for game in range(num_games):
+        state = GameState(np.zeros((HEIGHT, WIDTH), dtype=np.int8))
+
+        moves_played = 0
+
+        print(f"\nGame {game + 1}/{num_games}")
+        if display_moves:
+            display_board(state.board)
+
+        while True:
+            # Get current agent
+            current_agent = agent1 if state.current_player == 1 else agent2
+            agent_name = "Agent 1" if state.current_player == 1 else "Agent 2"
+
+            # Get and make move
+            move = current_agent.get_move(state)
+            state.make_move(move)
+            moves_played += 1
+
+            if display_moves:
+                print(f"{agent_name} plays column {move}")
+                display_board(state.board)
+
+            # Check for winner
+            winner = state.check_winner()
+            if winner is not None:
+                if not display_moves:
+                    display_board(state.board)
+                if winner == 1:
+                    stats["agent1_wins"] += 1
+                    print(f"Agent 1 wins in {moves_played} moves!")
+                    print(f"Agent 1 wins in {moves_played} moves!", file=stderr)
+                else:
+                    stats["agent2_wins"] += 1
+                    print(f"Agent 2 wins in {moves_played} moves!")
+                    print(f"Agent 2 wins in {moves_played} moves!", file=stderr)
+                break
+
+            # Check for draw
+            if not state.get_valid_moves():
+                if not display_moves:
+                    display_board(state.board)
+                stats["draws"] += 1
+                print(f"Game is a draw after {moves_played} moves!")
+                print(f"Game is a draw after {moves_played} moves!", file=stderr)
+                break
+
+    # Print final statistics
+    print("\nFinal Statistics:")
+    print(f"Total games: {num_games}")
+    print(
+        f"Agent 1 wins: {stats['agent1_wins']} ({stats['agent1_wins']/num_games*100:.1f}%)"
+    )
+    print(
+        f"Agent 2 wins: {stats['agent2_wins']} ({stats['agent2_wins']/num_games*100:.1f}%)"
+    )
+    print(f"Draws: {stats['draws']} ({stats['draws']/num_games*100:.1f}%)")
+
+
 if __name__ == "__main__":
-    main()
+    NUM_GAMES = 10  # Number of games to play
+    DISPLAY_MOVES = True  # Whether to display each move
+    MAX_TIME = 3.0  # Seconds per move
+
+    play_agent_vs_agent(NUM_GAMES, DISPLAY_MOVES, MAX_TIME)
+
+
+# if __name__ == "__main__":
+#     main()
