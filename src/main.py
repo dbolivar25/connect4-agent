@@ -125,20 +125,6 @@ class GameState:
                     return True
         return False
 
-    def get_winning_threat_moves(self, player: int) -> List[int]:
-        """Get list of moves that would result in an immediate win"""
-        threats = []
-        for col in range(WIDTH):
-            if self.height_map[col] >= 0:
-                row = self.height_map[col]
-                # Make move
-                self.board[row][col] = player
-                if self.is_win_move(player):
-                    threats.append(col)
-                # Undo move
-                self.board[row][col] = 0
-        return threats
-
 
 class Node:
     """Enhanced MCTS node with ML evaluation integration"""
@@ -146,12 +132,10 @@ class Node:
     def __init__(
         self,
         board: GameState,
-        classifier: PositionClassifier,
         parent: Optional["Node"] = None,
         move: Optional[int] = None,
     ):
         self.board = board
-        self.classifier = classifier
         self.parent = parent
         self.move = move
         self.children: Dict[int, "Node"] = {}
@@ -159,12 +143,9 @@ class Node:
         self.wins = 0
         self.untried_moves = self.board.get_valid_moves()
 
-        # Cache the ML evaluation
-        self._cached_evaluation = None
-
     def add_child(self, move: int, board: GameState) -> "Node":
         """Create a new child node"""
-        child = Node(board, self.classifier, self, move)
+        child = Node(board, self, move)
         self.children[move] = child
         return child
 
@@ -181,19 +162,10 @@ class Node:
         # Basic UCB formula
         exploitation = self.wins / self.visits
         exploration = exploration_weight * np.sqrt(
-            np.log(self.parent.visits) / self.visits
+            np.log(self.parent.visits) / self.visits  # pyright: ignore
         )
 
-        # Add ML evaluation influence
-        if self._cached_evaluation is None:
-            analysis = self.classifier.analyze_position(self.board.board)
-            self._cached_evaluation = (
-                analysis["win_probability"] - analysis["loss_probability"]
-            )
-
-        ml_influence = 0.3 * self._cached_evaluation  # Adjust weight as needed
-
-        return exploitation + exploration + ml_influence
+        return exploitation + exploration
 
 
 class Agent:
@@ -202,7 +174,7 @@ class Agent:
     def __init__(
         self,
         classifier: PositionClassifier,
-        min_simulations: int = 2000,
+        min_simulations: int = 1000,
         max_time: float = 5.0,
         rollout_depth: int = 3,
     ):
@@ -277,7 +249,7 @@ class Agent:
 
             # Get ML evaluation
             analysis = self.classifier.analyze_position(board.board)
-            evaluation = analysis["win_probability"] - analysis["loss_probability"]
+            evaluation = 1 - analysis["loss_probability"]  # pyright: ignore
 
             if use_cache:
                 self.cache_evaluation(board.board, evaluation)
@@ -330,11 +302,11 @@ class Agent:
 
         # Get ML evaluation of current position
         analysis = self.classifier.analyze_position(board.board)
-        initial_eval = analysis["win_probability"] - analysis["loss_probability"]
+        initial_eval = 1 - analysis["loss_probability"]  # pyright: ignore
 
         # If position is clearly winning/losing, trust ML evaluation
-        if abs(initial_eval) > 0.8:
-            return 1.0 if initial_eval > 0 else 0.0
+        if abs(initial_eval) > 0.9:
+            return initial_eval
 
         # Do shallow MiniMax rollout
         _, rollout_eval = self.minimax(
@@ -346,9 +318,7 @@ class Agent:
             use_cache=True,
         )
 
-        # Combine ML evaluation with rollout result
-        combined_eval = 0.7 * rollout_eval + 0.3 * initial_eval
-        return 1.0 if combined_eval > 0 else 0.0
+        return rollout_eval
 
     def backpropagate(self, node: Optional[Node], result: float):
         """Update statistics back up the tree"""
@@ -383,7 +353,7 @@ class Agent:
                 return move
 
         # MCTS search with ML integration
-        root = Node(board, self.classifier)
+        root = Node(board)
         simulation_count = 0
 
         # First phase: Complete minimum required simulations
@@ -480,10 +450,6 @@ def display_board(board: GameState):
         for cell in row:
             print(f"{SYMBOLS[cell]}", end="")
         print("|")
-    print("-" * (WIDTH * 2 + 2))
-    print(" ", end="")
-    for i in range(WIDTH):
-        print(f"{i + 1}", end=" ")
     print("\n")
 
 
@@ -503,16 +469,16 @@ def main():
     # Create agents
     player1 = Agent(
         classifier=classifier,
-        min_simulations=500,
+        min_simulations=1000,
         max_time=5.0,
         rollout_depth=2,
     )
 
     player2 = Agent(
         classifier=classifier,
-        min_simulations=500,
+        min_simulations=1000,
         max_time=5.0,
-        rollout_depth=2,
+        rollout_depth=3,
     )
 
     # Play a game
