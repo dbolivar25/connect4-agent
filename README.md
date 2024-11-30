@@ -20,9 +20,6 @@
     - [Position Evaluation Strategy](#position-evaluation-strategy)
     - [Machine Learning Model](#machine-learning-model)
   - [Project Structure](#project-structure)
-  - [Future Improvements](#future-improvements)
-  - [Contributing](#contributing)
-  - [License](#license)
   - [Acknowledgments](#acknowledgments)
   <!--toc:end-->
 
@@ -203,7 +200,7 @@ The AI uses a phase-based evaluation strategy:
 
 ## Project Structure
 
-```
+```bash
 ├── agent.py                # AI agent implementation
 ├── config.py              # Configuration parameters
 ├── game_state.py          # Game state management
@@ -213,24 +210,6 @@ The AI uses a phase-based evaluation strategy:
 └── data/                  # Dataset storage
 ```
 
-## Future Improvements
-
-1. GUI implementation
-2. Adjustable difficulty levels
-3. Network play support
-4. Enhanced position evaluation features
-5. Deeper search capabilities
-6. Opening book implementation
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-[Specify your license here]
-
 ## Acknowledgments
 
 - UCI Machine Learning Repository for the Connect 4 dataset
-- [Add any other acknowledgments]
