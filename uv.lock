@@ -44,7 +44,7 @@ wheels = [
 ]
 
 [[package]]
-name = "final-project"
+name = "connect4-agent"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
