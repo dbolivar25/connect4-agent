@@ -102,6 +102,13 @@ class PositionResultDataset:
                 features = [
                     0 if x == "b" else 1 if x == "x" else -1 for x in items[:-1]
                 ]
+
+                # Reshape into 6x7 board and flip to match input orientation
+                board = np.array(features).reshape(6, 7, order="F")
+                board = np.flipud(board)
+                # Flatten back to 1D array in the correct orientation
+                features = board.flatten()
+
                 # Convert outcome to integer
                 label = 1 if items[-1] == "win" else 0 if items[-1] == "draw" else -1
 
@@ -363,42 +370,6 @@ class PositionClassifier:
 
         score = sum(2.0 if board[r, c] == player else 0.0 for r, c in key_pos)
         return score / (2.0 * len(key_pos))
-
-    def _check_win_at_position(
-        self, board: np.ndarray, row: int, col: int, player: int
-    ) -> bool:
-        """Helper function to check if a position creates a win"""
-        # Check horizontal
-        for c in range(max(0, col - 3), min(col + 1, 4)):
-            window = board[row, c : c + 4]
-            if np.sum(window == player) == 4:
-                return True
-
-        # Check vertical
-        if row <= 2:
-            window = board[row : row + 4, col]
-            if np.sum(window == player) == 4:
-                return True
-
-        # Check diagonal down-right
-        for r, c in zip(
-            range(max(0, row - 3), min(row + 1, 3)),
-            range(max(0, col - 3), min(col + 1, 4)),
-        ):
-            window = [board[r + i, c + i] for i in range(4)]
-            if sum(x == player for x in window) == 4:
-                return True
-
-        # Check diagonal down-left
-        for r, c in zip(
-            range(max(0, row - 3), min(row + 1, 3)),
-            range(min(6, col + 3), max(col - 1, 2), -1),
-        ):
-            window = [board[r + i, c - i] for i in range(4)]
-            if sum(x == player for x in window) == 4:
-                return True
-
-        return False
 
     def _balance_dataset(
         self, X: np.ndarray, y: np.ndarray
@@ -675,7 +646,6 @@ def main():
     """Example usage of the enhanced classifier"""
 
     boards = [
-        # Board 1: Simple horizontal win for player 1
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 0],
@@ -686,7 +656,6 @@ def main():
                 [0, 0, 1, 1, 1, 0, 0],
             ]
         ),
-        # Board 2: Defensive play
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 0],
@@ -697,7 +666,6 @@ def main():
                 [0, 0, -1, -1, -1, 0, 1],
             ]
         ),
-        # Board 3: Complex middle-game position
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 0],
@@ -705,10 +673,9 @@ def main():
                 [0, 0, 1, -1, 0, 0, 0],
                 [0, 1, -1, 1, 0, 0, 0],
                 [1, -1, 1, -1, 1, 0, 0],
-                [-1, 1, -1, 1, -1, -1, 1],  # Valid with proper stacking
+                [-1, 1, -1, 1, -1, -1, 1],
             ]
         ),
-        # Board 4: Mid-game tactical position
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 0],
@@ -716,10 +683,9 @@ def main():
                 [0, 0, 1, 0, -1, 0, 0],
                 [0, 1, -1, 1, 1, -1, 0],
                 [1, -1, 1, -1, -1, 1, -1],
-                [-1, 1, -1, 1, 1, -1, 1],  # Valid with alternating plays
+                [-1, 1, -1, 1, 1, -1, 1],
             ]
         ),
-        # Board 5: Late-game position
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 0],
@@ -727,10 +693,9 @@ def main():
                 [0, 0, 1, -1, 1, -1, 0],
                 [0, 1, -1, 1, -1, 1, 0],
                 [1, -1, 1, -1, 1, -1, 1],
-                [-1, 1, -1, 1, -1, 1, -1],  # Valid sequence
+                [-1, 1, -1, 1, -1, 1, -1],
             ]
         ),
-        # Board 6: Near-endgame position
         np.array(
             [
                 [0, 0, 0, 0, 0, 0, 0],
@@ -738,7 +703,7 @@ def main():
                 [0, 1, -1, 1, -1, 0, 0],
                 [1, -1, 1, -1, 1, -1, 0],
                 [-1, 1, -1, 1, -1, 1, 1],
-                [1, -1, 1, -1, 1, -1, -1],  # Valid with proper alternation
+                [1, -1, 1, -1, 1, -1, -1],
             ]
         ),
     ]
@@ -749,13 +714,13 @@ def main():
     X, y = classifier.dataset.load_data()
     X = classifier._add_engineered_features(X)
 
-    model_path = "../models/connect4_analyzer_v15.pkl"
+    model_path = "../models/connect4_analyzer_v16.pkl"
     if os.path.exists(model_path):
         print(f"Loading existing model from {model_path}")
         classifier.load_model(model_path)
     else:
         print("Training new model...")
-        classifier.train(save_path=model_path, tune_params=True, balance_data=True)
+        classifier.train(save_path=model_path, tune_params=False, balance_data=True)
         classifier.cross_validate(X, y)
 
     _, X_val, _, y_val = train_test_split(

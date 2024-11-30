@@ -1,56 +1,41 @@
 import numpy as np
-import time
-from typing import Dict, List, Tuple, Optional
-from numpy.typing import NDArray
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Tuple, Final
 import logging
-import os
+import time
+from numpy.typing import NDArray
 
-from position_classifier import PositionClassifier
-
+# Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger(__name__)
 
-HEIGHT = 6
-WIDTH = 7
-SEARCH_ORDER = [3, 2, 4, 1, 5, 0, 6]  # Center-out search order
-EXPLORATION_CONSTANT = np.sqrt(2)  # Standard UCT constant
-SYMBOLS = {0: "⚪", 1: "🔴", -1: "🔵"}  # Updated symbols to match classifier notation
+# Game constants
+HEIGHT: Final[int] = 6
+WIDTH: Final[int] = 7
+SEARCH_ORDER: Final[List[int]] = [3, 2, 4, 1, 5, 0, 6]  # Center-out search
+SYMBOLS: Final[Dict[int, str]] = {0: "⚪", 1: "🔴", -1: "🔵"}
+
+# Search parameters
+NEGAMAX_DEPTH: Final[int] = 3  # Fixed 3-ply search depth
+MODEL_ONLY_PHASE: Final[int] = 9  # Pure model evaluation until move 9
+HYBRID_PHASE_END: Final[int] = 12  # Switch to pure rollouts after move 12
+NUM_ROLLOUTS: Final[int] = 75  # Number of rollouts per position
 
 
-WIN_POSITIONS = (
-    [
-        # Horizontal
-        [(row, col + i) for i in range(4)]
-        for row in range(HEIGHT)
-        for col in range(WIDTH - 3)
-    ]
-    + [
-        # Vertical
-        [(row + i, col) for i in range(4)]
-        for row in range(HEIGHT - 3)
-        for col in range(WIDTH)
-    ]
-    + [
-        # Diagonal (positive slope)
-        [(row + i, col + i) for i in range(4)]
-        for row in range(HEIGHT - 3)
-        for col in range(WIDTH - 3)
-    ]
-    + [
-        # Diagonal (negative slope)
-        [(row - i, col + i) for i in range(4)]
-        for row in range(3, HEIGHT)
-        for col in range(WIDTH - 3)
-    ]
-)
+@dataclass
+class SearchConfig:
+    """Configuration parameters for the search"""
+
+    model_weight: float = 0.7  # Weight given to model evaluation in hybrid phase
+    num_rollouts: int = NUM_ROLLOUTS  # Number of rollouts per position
 
 
 class GameState:
-    """Enhanced GameState class compatible with both MCTS and Classifier"""
+    """Represents the current state of the Connect 4 game"""
 
     def __init__(
         self,
@@ -58,29 +43,33 @@ class GameState:
         height_map: Optional[NDArray[np.int8]] = None,
         current_player: int = 1,
         last_move: Optional[Tuple[int, int]] = None,
+        ply_count: int = 0,
     ):
+        """Initialize game state"""
         self.board = (
             board if board is not None else np.zeros((HEIGHT, WIDTH), dtype=np.int8)
         )
         self.current_player = current_player
         self.last_move = last_move
-        self.height_map = (
-            height_map
-            if board is not None and height_map is not None
-            else np.array([HEIGHT - 1] * WIDTH)
-        )
+        self.ply_count = ply_count
 
-        # Initialize height map if board is provided and its height map isnt
-        if board is not None and height_map is None:
-            self.height_map = np.array(
-                [
-                    min(
-                        [row - 1 for row in range(HEIGHT) if board[row][col] != 0]
-                        or [HEIGHT - 1]
-                    )
-                    for col in range(WIDTH)
-                ]
-            )
+        # Initialize height map
+        if height_map is not None:
+            self.height_map = height_map
+        else:
+            self._init_height_map()
+
+    def _init_height_map(self):
+        """Initialize or update height map"""
+        self.height_map = np.array(
+            [
+                next(
+                    (row - 1 for row in range(HEIGHT) if self.board[row][col] != 0),
+                    HEIGHT - 1,
+                )
+                for col in range(WIDTH)
+            ]
+        )
 
     def clone(self) -> "GameState":
         """Create a deep copy of the current state"""
@@ -89,6 +78,7 @@ class GameState:
             height_map=self.height_map.copy(),
             current_player=self.current_player,
             last_move=self.last_move,
+            ply_count=self.ply_count,
         )
 
     def get_valid_moves(self) -> List[int]:
@@ -104,348 +94,244 @@ class GameState:
         self.board[row][col] = self.current_player
         self.last_move = (row, col)
         self.height_map[col] -= 1
-        self.current_player = self.get_opponent(self.current_player)
+        self.current_player = -self.current_player
+        self.ply_count += 1
         return True
 
-    def get_opponent(self, player: int) -> int:
-        """Get the opponent's player number"""
-        return -1 if player == 1 else 1
-
-    def is_win_move(self, player: int) -> bool:
-        """Check if the last move resulted in a win"""
+    def check_win(self) -> Optional[int]:
+        """
+        Check if the last move resulted in a win
+        Returns: 1 for win, -1 for loss, 0 for draw, None for ongoing
+        """
         if self.last_move is None:
-            return False
+            return None
 
         row, col = self.last_move
+        player = -self.current_player  # Check previous player's move
 
-        # Check all possible winning lines containing the last move
-        for win_pos in WIN_POSITIONS:
-            if (row, col) in win_pos:
-                if all(self.board[r][c] == player for r, c in win_pos):
-                    return True
-        return False
+        # Horizontal check
+        for c in range(max(0, col - 3), min(col + 1, WIDTH - 3)):
+            if np.all(self.board[row, c : c + 4] == player):
+                return player
 
+        # Vertical check
+        if row <= 2:
+            if np.all(self.board[row : row + 4, col] == player):
+                return player
 
-class Node:
-    """Enhanced MCTS node with ML evaluation integration"""
+        # Diagonal checks
+        for offset in range(-3, 1):
+            # Positive slope
+            if 0 <= row + offset < HEIGHT - 3 and 0 <= col + offset < WIDTH - 3:
+                if np.all(
+                    np.array(
+                        [
+                            self.board[row + offset + i][col + offset + i]
+                            for i in range(4)
+                        ]
+                    )
+                    == player
+                ):
+                    return player
 
-    def __init__(
-        self,
-        board: GameState,
-        parent: Optional["Node"] = None,
-        move: Optional[int] = None,
-    ):
-        self.board = board
-        self.parent = parent
-        self.move = move
-        self.children: Dict[int, "Node"] = {}
-        self.visits = 0
-        self.wins = 0
-        self.untried_moves = self.board.get_valid_moves()
+            # Negative slope
+            if 3 <= row + offset < HEIGHT and 0 <= col + offset < WIDTH - 3:
+                if np.all(
+                    np.array(
+                        [
+                            self.board[row + offset - i][col + offset + i]
+                            for i in range(4)
+                        ]
+                    )
+                    == player
+                ):
+                    return player
 
-    def add_child(self, move: int, board: GameState) -> "Node":
-        """Create a new child node"""
-        child = Node(board, self, move)
-        self.children[move] = child
-        return child
+        # Check for draw
+        if not self.get_valid_moves():
+            return 0
 
-    def update(self, result: float):
-        """Update node statistics"""
-        self.visits += 1
-        self.wins += result
-
-    def get_ucb_score(self, exploration_weight: float = EXPLORATION_CONSTANT) -> float:
-        """Calculate UCB score with ML evaluation influence"""
-        if self.visits == 0:
-            return float("inf")
-
-        # Basic UCB formula
-        exploitation = self.wins / self.visits
-        exploration = exploration_weight * np.sqrt(
-            np.log(self.parent.visits) / self.visits  # pyright: ignore
-        )
-
-        return exploitation + exploration
+        return None
 
 
 class Agent:
-    """Enhanced agent combining MCTS, MiniMax, and ML board evaluation"""
+    """Negamax-based game-playing agent with ML position evaluation"""
 
-    def __init__(
-        self,
-        classifier: PositionClassifier,
-        min_simulations: int = 1000,
-        max_time: float = 5.0,
-        rollout_depth: int = 3,
-    ):
+    def __init__(self, classifier, config: SearchConfig = SearchConfig()):
         self.classifier = classifier
-        self.min_simulations = min_simulations
-        self.max_time = max_time
-        self.rollout_depth = rollout_depth
-        self.start_time = 0
-        self.position_cache: Dict[str, float] = {}
+        self.config = config
+        self.start_time = 0.0
+        self.ml_cache: Dict[str, Tuple[float, float, float]] = {}
 
-    def board_to_cache_key(self, board: NDArray[np.int8]) -> str:
-        """Convert board state to string for caching"""
-        return ",".join(map(str, board.flatten()))
+    def _board_to_key(self, board: NDArray[np.int8]) -> str:
+        """Convert board state to string key for caching"""
+        return board.tobytes().hex()
 
-    def get_cached_evaluation(self, board: NDArray[np.int8]) -> Optional[float]:
-        """Retrieve cached evaluation if available"""
-        key = self.board_to_cache_key(board)
-        return self.position_cache.get(key)
+    def _get_model_evaluation(self, state: GameState) -> float:
+        """Get ML model evaluation normalized to [-1, 1] range"""
+        key = self._board_to_key(state.board)
 
-    def cache_evaluation(self, board: NDArray[np.int8], value: float):
-        """Store evaluation in cache"""
-        key = self.board_to_cache_key(board)
-        self.position_cache[key] = value
+        if key not in self.ml_cache:
+            analysis = self.classifier.analyze_position(state.board)
+            self.ml_cache[key] = (
+                analysis["win_probability"],
+                analysis["loss_probability"],
+                analysis["draw_probability"],
+            )
 
-    def select(self, node: Node) -> Node:
-        """Select most promising node for expansion"""
-        while (
-            node.untried_moves is not None
-            and len(node.untried_moves) == 0
-            and len(node.children) > 0
-        ):
-            children_scores = {
-                move: child.get_ucb_score() for move, child in node.children.items()
-            }
-            best_move = max(children_scores.items(), key=lambda x: x[1])[0]
-            node = node.children[best_move]
-        return node
+        win_prob, loss_prob, _ = self.ml_cache[key]
+        score = win_prob - loss_prob
+        return score if state.current_player == 1 else -score
 
-    def expand(self, node: Node) -> Optional[Node]:
-        """Expand selected node"""
-        if not node.untried_moves:
-            return None
-
-        move = node.untried_moves.pop(0)
-        new_board = node.board.clone()
-        new_board.make_move(move)
-        return node.add_child(move, new_board)
-
-    def minimax(
-        self,
-        board: GameState,
-        depth: int,
-        alpha: float,
-        beta: float,
-        maximizing: bool,
-        use_cache: bool = True,
-    ) -> Tuple[int, float]:
-        """Enhanced MiniMax with ML evaluation integration"""
-        if time.time() - self.start_time > self.max_time * 0.95:
-            return -1, 0.0  # Emergency timeout
-
-        # Terminal state check
-        if board.is_win_move(board.get_opponent(board.current_player)):
-            return -1, -1.0 if maximizing else 1.0
-
-        if depth == 0:
-            # Use cached evaluation if available
-            if use_cache:
-                cached_value = self.get_cached_evaluation(board.board)
-                if cached_value is not None:
-                    return -1, cached_value
-
-            # Get ML evaluation
-            analysis = self.classifier.analyze_position(board.board)
-            evaluation = 1 - analysis["loss_probability"]  # pyright: ignore
-
-            if use_cache:
-                self.cache_evaluation(board.board, evaluation)
-
-            return -1, evaluation
-
-        valid_moves = board.get_valid_moves()
-        if not valid_moves:
-            return -1, 0.0
-
-        best_move = valid_moves[0]
-        if maximizing:
-            max_eval = float("-inf")
-            for move in valid_moves:
-                new_board = board.clone()
-                new_board.make_move(move)
-                _, eval_score = self.minimax(
-                    new_board, depth - 1, alpha, beta, False, use_cache
-                )
-                if eval_score > max_eval:
-                    max_eval = eval_score
-                    best_move = move
-                alpha = max(alpha, eval_score)
-                if beta <= alpha:
-                    break
-            return best_move, max_eval
-        else:
-            min_eval = float("inf")
-            for move in valid_moves:
-                new_board = board.clone()
-                new_board.make_move(move)
-                _, eval_score = self.minimax(
-                    new_board, depth - 1, alpha, beta, True, use_cache
-                )
-                if eval_score < min_eval:
-                    min_eval = eval_score
-                    best_move = move
-                beta = min(beta, eval_score)
-                if beta <= alpha:
-                    break
-            return best_move, min_eval
-
-    def simulate(self, board: GameState) -> float:
-        """Enhanced simulation with MiniMax rollout and ML evaluation"""
-        if time.time() - self.start_time > self.max_time * 0.95:
-            return 0.5  # Emergency timeout
-
-        if board.is_win_move(board.get_opponent(board.current_player)):
-            return 0.0
-
-        # Get ML evaluation of current position
-        analysis = self.classifier.analyze_position(board.board)
-        initial_eval = 1 - analysis["loss_probability"]  # pyright: ignore
-
-        # If position is clearly winning/losing, trust ML evaluation
-        if abs(initial_eval) > 0.9:
-            return initial_eval
-
-        # Do shallow MiniMax rollout
-        _, rollout_eval = self.minimax(
-            board,
-            self.rollout_depth,
-            float("-inf"),
-            float("inf"),
-            True,
-            use_cache=True,
-        )
-
-        return rollout_eval
-
-    def backpropagate(self, node: Optional[Node], result: float):
-        """Update statistics back up the tree"""
-        while node is not None:
-            node.update(result)
-            node = node.parent
-            result = 1 - result
-
-    def get_move(self, board: GameState) -> int:
-        """Get best move using hybrid approach"""
-        self.start_time = time.time()
-        valid_moves = board.get_valid_moves()
-
-        # First priority: Find winning moves
-        for move in valid_moves:
-            test_board = board.clone()
-            test_board.make_move(move)
-            if test_board.is_win_move(
-                test_board.get_opponent(test_board.current_player)
-            ):
-                logger.info(f"Found immediate winning move: {move + 1}")
-                return move
-
-        # Second priority: Block opponent wins
-        opponent = board.get_opponent(board.current_player)
-        for move in valid_moves:
-            test_board = board.clone()
-            test_board.current_player = opponent
-            test_board.make_move(move)
-            if test_board.is_win_move(opponent):
-                logger.info(f"Found blocking move against opponent win: {move + 1}")
-                return move
-
-        # MCTS search with ML integration
-        root = Node(board)
-        simulation_count = 0
-
-        # First phase: Complete minimum required simulations
-        while simulation_count < self.min_simulations:
-            node = self.select(root)
-            child = self.expand(node)
-
-            if child is not None:
-                result = self.simulate(child.board)
-                self.backpropagate(child, result)
-            else:
-                result = self.simulate(node.board)
-                self.backpropagate(node, result)
-
-            simulation_count += 1
-
-        # Second phase: Continue until timeout
+    def _random_playout(self, state: GameState) -> float:
+        """Play out the position randomly to a terminal state"""
+        current = state.clone()
         while True:
-            elapsed_time = time.time() - self.start_time
-            if elapsed_time >= self.max_time * 0.95:
+            result = current.check_win()
+            if result is not None:
+                return result * current.current_player
+
+            moves = current.get_valid_moves()
+            move = moves[np.random.randint(len(moves))]
+            current.make_move(move)
+
+    def _evaluate_position(self, state: GameState) -> float:
+        """Evaluate position based on game phase"""
+        if state.ply_count < MODEL_ONLY_PHASE:
+            # Early game: Use pure model evaluation
+            return self._get_model_evaluation(state)
+
+        elif state.ply_count <= HYBRID_PHASE_END:
+            # Mid game: Use weighted combination of model and rollouts
+            model_score = self._get_model_evaluation(state)
+            rollout_scores = [
+                self._random_playout(state.clone())
+                for _ in range(self.config.num_rollouts)
+            ]
+            rollout_score = np.mean(rollout_scores)
+
+            return float(
+                self.config.model_weight * model_score
+                + (1 - self.config.model_weight) * rollout_score
+            )
+
+        else:
+            # Late game: Use pure rollouts
+            rollout_scores = [
+                self._random_playout(state.clone())
+                for _ in range(self.config.num_rollouts)
+            ]
+            return float(np.mean(rollout_scores))
+
+    def _negamax(
+        self, state: GameState, depth: int, alpha: float, beta: float
+    ) -> float:
+        """Negamax with alpha-beta pruning and position evaluation"""
+        # Check terminal states
+        result = state.check_win()
+        if result is not None:
+            return result * state.current_player
+
+        if depth <= 0:
+            return self._evaluate_position(state)
+
+        moves = state.get_valid_moves()
+        if not moves:
+            return 0  # Draw
+
+        value = float("-inf")
+        for move in moves:
+            next_state = state.clone()
+            next_state.make_move(move)
+            score = -self._negamax(next_state, depth - 1, -beta, -alpha)
+            value = max(value, score)
+            alpha = max(alpha, score)
+            if alpha >= beta:
                 break
 
-            node = self.select(root)
-            child = self.expand(node)
+        return value
 
-            if child is not None:
-                result = self.simulate(child.board)
-                self.backpropagate(child, result)
-            else:
-                result = self.simulate(node.board)
-                self.backpropagate(node, result)
+    def get_best_move(self, state: GameState) -> int:
+        """Find the best move using 3-ply Negamax search"""
+        self.start_time = time.time()
+        valid_moves = state.get_valid_moves()
 
-            simulation_count += 1
+        # Quick checks for winning/blocking moves
+        for move in valid_moves:
+            # Check for win
+            test_state = state.clone()
+            test_state.make_move(move)
+            if test_state.check_win() == -test_state.current_player:
+                logger.info(f"Found winning move: {move + 1}")
+                return move
 
-        # Log statistics
-        elapsed_time = time.time() - self.start_time
-        logger.info(
-            f"\nCompleted {simulation_count} simulations in {elapsed_time:.3f}s"
-        )
+            # Check for block
+            test_state = state.clone()
+            test_state.current_player = -state.current_player
+            test_state.make_move(move)
+            if test_state.check_win() == -test_state.current_player:
+                logger.info(f"Found blocking move: {move + 1}")
+                return move
 
-        logger.info("\nMove analysis:")
-        move_stats = []
-        for move in board.get_valid_moves():
-            if move in root.children:
-                child = root.children[move]
-                win_rate = child.wins / max(1, child.visits)
-                logger.info(
-                    f"Move {move + 1}: "
-                    f"Visits={child.visits}, "
-                    f"Win Rate={win_rate:.3f}"
-                )
-                move_stats.append((move, child.visits, win_rate))
+        # Negamax search
+        best_move = valid_moves[0]
+        best_score = float("-inf")
+        alpha = float("-inf")
+        beta = float("inf")
 
-        # Select best move, considering both win rate and visit count
-        best_move = max(move_stats, key=lambda x: (x[2], x[1]))[0]
+        logger.info("\nStarting 3-ply Negamax search...")
+        logger.info(f"Game phase: Move {state.ply_count + 1}")
+
+        for move in valid_moves:
+            next_state = state.clone()
+            next_state.make_move(move)
+            score = -self._negamax(next_state, NEGAMAX_DEPTH - 1, -beta, -alpha)
+            logger.info(f"Move {move + 1}: score = {score:.3f}")
+
+            if score > best_score:
+                best_score = score
+                best_move = move
+            alpha = max(alpha, score)
+
         logger.info(f"\nSelected move {best_move + 1}")
         return best_move
 
+    def clear_cache(self):
+        """Clear ML evaluation cache"""
+        self.ml_cache.clear()
+
 
 def play_game(player1: Agent, player2: Agent):
-    """Play a game between two agents"""
-    board = GameState()
-    game_over = False
+    """Play a complete game between two agents"""
+    state = GameState()
 
-    while not game_over:
-        display_board(board)
-        current_player = player1 if board.current_player == 1 else player2
-        player_symbol = SYMBOLS[board.current_player]
-        col = current_player.get_move(board)
+    while True:
+        display_board(state)
+        current_player = player1 if state.current_player == 1 else player2
+        player_symbol = SYMBOLS[state.current_player]
+
+        move = current_player.get_best_move(state)
         print(
-            f"\nPlayer {board.current_player} {player_symbol} chooses column {col + 1}"
+            f"\nPlayer {state.current_player} {player_symbol} chooses column {move + 1}"
         )
 
-        board.make_move(col)
-        if board.is_win_move(board.get_opponent(board.current_player)):
-            display_board(board)
-            winner = (
-                f"Player {board.get_opponent(board.current_player)} "
-                + f"{SYMBOLS[board.get_opponent(board.current_player)]}"
-            )
-            print(f"\n{winner} wins!")
-            game_over = True
-        elif not board.get_valid_moves():
-            display_board(board)
-            print("\nIt's a draw!")
-            game_over = True
+        state.make_move(move)
+        result = state.check_win()
+
+        if result is not None:
+            display_board(state)
+            if result == 0:
+                print("\nIt's a draw!")
+            else:
+                winner = f"Player {result} {SYMBOLS[result]}"
+                print(f"\n{winner} wins!")
+            break
 
 
-def display_board(board: GameState):
+def display_board(state: GameState):
     """Display the current board state"""
     print("\n")
-    for row in board.board:
+    for row in state.board:
         print("|", end="")
         for cell in row:
             print(f"{SYMBOLS[cell]}", end="")
@@ -453,8 +339,93 @@ def display_board(board: GameState):
     print("\n")
 
 
+def get_human_move(state: GameState) -> int:
+    """Get move from human player"""
+    valid_moves = state.get_valid_moves()
+    while True:
+        try:
+            move = int(input("\nEnter column (1-7): ")) - 1
+            if move in valid_moves:
+                return move
+            print("Invalid move! Please try again.")
+        except ValueError:
+            print("Please enter a valid number!")
+
+
+def play_game_with_mode(
+    mode: str,
+    player1: Agent,
+    player2: Optional[Agent] = None,
+    human_starts: bool = True,
+):
+    """Play a game based on selected mode"""
+    state = GameState()
+
+    # For human vs agent games, determine if human is player 1 or 2
+    def is_human_turn(current_player):
+        return (
+            human_starts
+            and current_player == 1
+            or not human_starts
+            and current_player == -1
+            if mode == "human_vs_agent"
+            else False
+        )
+
+    # Display who goes first
+    if mode == "human_vs_agent":
+        print(f"\n{'You' if human_starts else 'AI'} will play first as {SYMBOLS[1]}")
+    else:
+        print(f"\nPlayer 1 {SYMBOLS[1]} will play first")
+
+    while True:
+        display_board(state)
+        player_symbol = SYMBOLS[state.current_player]
+
+        # Determine current player's move
+        if mode == "agent_vs_agent":
+            current_agent = player1 if state.current_player == 1 else player2
+            move = current_agent.get_best_move(state)  # pyright: ignore
+            print(
+                f"\nPlayer {state.current_player} {player_symbol} chooses column {move + 1}"
+            )
+
+        elif mode == "human_vs_agent":
+            if is_human_turn(state.current_player):
+                move = get_human_move(state)
+                print(f"\nYou {player_symbol} chose column {move + 1}")
+            else:
+                move = player1.get_best_move(state)
+                print(f"\nAI {player_symbol} chooses column {move + 1}")
+
+        # Make the move
+        state.make_move(move)  # pyright: ignore
+        result = state.check_win()
+
+        # Check for game end
+        if result is not None:
+            display_board(state)
+            if result == 0:
+                print("\nIt's a draw!")
+            else:
+                # Determine winner message based on game mode and who played as which player
+                if mode == "human_vs_agent":
+                    is_human_winner = (result == 1 and human_starts) or (
+                        result == -1 and not human_starts
+                    )
+                    winner = "You" if is_human_winner else "AI"
+                else:
+                    winner = f"Player {result} {SYMBOLS[result]}"
+                print(f"\n{winner} wins!")
+            break
+
+
 def main():
-    """Example usage of the hybrid agent"""
+    """Main function with game mode selection and random player order"""
+    from position_classifier import PositionClassifier
+    import os
+    import random
+
     # Load the trained classifier
     classifier = PositionClassifier()
     model_path = "models/connect4_analyzer_final.pkl"
@@ -467,22 +438,42 @@ def main():
         classifier.train(save_path=model_path, tune_params=False, balance_data=True)
 
     # Create agents
-    player1 = Agent(
-        classifier=classifier,
-        min_simulations=1000,
-        max_time=5.0,
-        rollout_depth=2,
-    )
+    config = SearchConfig(model_weight=0.7, num_rollouts=NUM_ROLLOUTS)
+    agent1 = Agent(classifier=classifier, config=config)
+    agent2 = Agent(classifier=classifier, config=config)
 
-    player2 = Agent(
-        classifier=classifier,
-        min_simulations=1000,
-        max_time=5.0,
-        rollout_depth=3,
-    )
+    # Game mode selection
+    print("\nWelcome to Connect 4!")
+    print("1. Human vs AI")
+    print("2. AI vs AI")
 
-    # Play a game
-    play_game(player1, player2)
+    while True:
+        try:
+            choice = int(input("\nSelect game mode (1 or 2): "))
+            if choice in [1, 2]:
+                break
+            print("Invalid choice! Please select 1 or 2.")
+        except ValueError:
+            print("Please enter a valid number!")
+
+    # Randomly determine who goes first
+    human_starts = random.choice([True, False])
+
+    # Play game based on selected mode
+    if choice == 1:
+        play_game_with_mode("human_vs_agent", agent1, human_starts=human_starts)
+    else:
+        play_game_with_mode("agent_vs_agent", agent1, agent2)
+
+    # Ask to play again
+    while True:
+        play_again = input("\nPlay again? (y/n): ").lower()
+        if play_again in ["y", "n"]:
+            if play_again == "y":
+                print("\n" + "=" * 50 + "\n")
+                main()  # Restart the game
+            break
+        print("Please enter 'y' or 'n'!")
 
 
 if __name__ == "__main__":
