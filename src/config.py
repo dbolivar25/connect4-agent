@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, List
 
 
@@ -8,7 +8,9 @@ class GameConfig:
 
     HEIGHT: Final[int] = 6
     WIDTH: Final[int] = 7
-    SEARCH_ORDER: Final[List[int]] = [3, 2, 4, 1, 5, 0, 6]  # Center-out search
+    SEARCH_ORDER: Final[List[int]] = field(
+        default_factory=lambda: [3, 2, 4, 1, 5, 0, 6]
+    )  # Center-out search
 
 
 @dataclass
