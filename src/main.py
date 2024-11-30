@@ -1,9 +1,10 @@
 import os
 import random
-from typing import Dict, Final, Optional
+from typing import Any, Dict, Final, Optional
 
-from agent import NegamaxAgent
-from config import SearchConfig
+from negamax_agent import NegamaxAgent
+from random_agent import RandomAgent
+from mcts_agent import MCTSAgent
 from game_state import GameState
 from position_classifier import PositionClassifier
 
@@ -63,9 +64,11 @@ def get_human_move(state: GameState) -> int:
 
 def play_game_with_mode(
     mode: str,
-    player1: NegamaxAgent,
-    player2: Optional[NegamaxAgent] = None,
+    player1: Any,
+    player2: Optional[Any] = None,
     human_starts: bool = True,
+    player1_name: str = "Player 1",
+    player2_name: str = "Player 2",
 ):
     """Play a game based on selected mode"""
     state = GameState()
@@ -85,7 +88,7 @@ def play_game_with_mode(
     if mode == "human_vs_agent":
         print(f"\n{'You' if human_starts else 'AI'} will play first as {SYMBOLS[1]}")
     else:
-        print(f"\nPlayer 1 {SYMBOLS[1]} will play first")
+        print(f"\n{player1_name} {SYMBOLS[1]} will play first")
 
     while True:
         display_board(state)
@@ -94,10 +97,9 @@ def play_game_with_mode(
         # Determine current player's move
         if mode == "agent_vs_agent":
             current_agent = player1 if state.current_player == 1 else player2
-            move = current_agent.get_best_move(state)  # pyright: ignore
-            print(
-                f"\nPlayer {state.current_player} {player_symbol} chooses column {move + 1}"
-            )
+            current_name = player1_name if state.current_player == 1 else player2_name
+            move = current_agent.get_best_move(state)  # type: ignore
+            print(f"\n{current_name} {player_symbol} chooses column {move + 1}")
 
         elif mode == "human_vs_agent":
             if is_human_turn(state.current_player):
@@ -108,7 +110,7 @@ def play_game_with_mode(
                 print(f"\nAI {player_symbol} chooses column {move + 1}")
 
         # Make the move
-        state.make_move(move)  # pyright: ignore
+        state.make_move(move)  # type: ignore
         result = state.check_win()
 
         # Check for game end
@@ -124,7 +126,8 @@ def play_game_with_mode(
                     )
                     winner = "You" if is_human_winner else "AI"
                 else:
-                    winner = f"Player {result} {SYMBOLS[result]}"
+                    winner_name = player1_name if result == 1 else player2_name
+                    winner = f"{winner_name} ({SYMBOLS[result]})"
                 print(f"\n{winner} wins!")
             break
 
@@ -143,22 +146,19 @@ def main():
         print("Training new classifier model...")
         classifier.train(save_path=model_path, tune_params=False, balance_data=True)
 
-    # Create agents
-    config = SearchConfig(MODEL_WEIGHT=0.7, NUM_ROLLOUTS=100)
-    agent1 = NegamaxAgent(classifier=classifier, config=config)
-    agent2 = NegamaxAgent(classifier=classifier, config=config)
-
     # Game mode selection
     print("\nWelcome to Connect 4!")
-    print("1. Human vs AI")
-    print("2. AI vs AI")
+    print("1. Human vs Negamax")
+    print("2. Random vs Negamax")
+    print("3. MCTS vs Negamax")
+    print("4. Negamax vs Negamax")
 
     while True:
         try:
-            choice = int(input("\nSelect game mode (1 or 2): "))
-            if choice in [1, 2]:
+            choice = int(input("\nSelect game mode (1-4): "))
+            if choice in [1, 2, 3, 4]:
                 break
-            print("Invalid choice! Please select 1 or 2.")
+            print("Invalid choice! Please select 1-4.")
         except ValueError:
             print("Please enter a valid number!")
 
@@ -167,9 +167,35 @@ def main():
 
     # Play game based on selected mode
     if choice == 1:
-        play_game_with_mode("human_vs_agent", agent1, human_starts=human_starts)
-    else:
-        play_game_with_mode("agent_vs_agent", agent1, agent2)
+        play_game_with_mode(
+            "human_vs_agent",
+            NegamaxAgent(classifier=classifier),
+            human_starts=human_starts,
+        )
+    elif choice == 2:
+        play_game_with_mode(
+            "agent_vs_agent",
+            RandomAgent(seed=42),
+            NegamaxAgent(classifier=classifier),
+            player1_name="Random Agent",
+            player2_name="Negamax Agent",
+        )
+    elif choice == 3:
+        play_game_with_mode(
+            "agent_vs_agent",
+            MCTSAgent(simulation_time=3.0, seed=42),
+            NegamaxAgent(classifier=classifier),
+            player1_name="MCTS Agent",
+            player2_name="Negamax Agent",
+        )
+    else:  # choice == 4
+        play_game_with_mode(
+            "agent_vs_agent",
+            NegamaxAgent(classifier=classifier),
+            NegamaxAgent(classifier=classifier),
+            player1_name="Negamax 1",
+            player2_name="Negamax 2",
+        )
 
     # Ask to play again
     while True:

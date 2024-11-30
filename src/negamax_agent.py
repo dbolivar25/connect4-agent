@@ -12,9 +12,8 @@ from logger import logger
 class NegamaxAgent:
     """Negamax-based game-playing agent with ML position evaluation"""
 
-    def __init__(self, classifier, config: SearchConfig = SearchConfig()):
+    def __init__(self, classifier):
         self.classifier = classifier
-        self.config = config
         self.start_time = 0.0
         self.ml_cache: Dict[str, Tuple[float, float, float]] = {}
 
@@ -61,20 +60,20 @@ class NegamaxAgent:
             model_score = self._get_model_evaluation(state)
             rollout_scores = [
                 self._random_playout(state.clone())
-                for _ in range(self.config.NUM_ROLLOUTS)
+                for _ in range(SearchConfig.NUM_ROLLOUTS)
             ]
             rollout_score = np.mean(rollout_scores)
 
             return float(
-                self.config.MODEL_WEIGHT * model_score
-                + (1 - self.config.MODEL_WEIGHT) * rollout_score
+                SearchConfig.MODEL_WEIGHT * model_score
+                + (1 - SearchConfig.MODEL_WEIGHT) * rollout_score
             )
 
         else:
             # Late game: Use pure rollouts
             rollout_scores = [
                 self._random_playout(state.clone())
-                for _ in range(self.config.NUM_ROLLOUTS)
+                for _ in range(SearchConfig.NUM_ROLLOUTS)
             ]
             return float(np.mean(rollout_scores))
 
