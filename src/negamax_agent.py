@@ -9,7 +9,7 @@ from game_state import GameState
 from logger import logger
 
 
-class Agent:
+class NegamaxAgent:
     """Negamax-based game-playing agent with ML position evaluation"""
 
     def __init__(self, classifier, config: SearchConfig = SearchConfig()):

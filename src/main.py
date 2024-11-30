@@ -2,7 +2,7 @@ import os
 import random
 from typing import Dict, Final, Optional
 
-from agent import Agent
+from agent import NegamaxAgent
 from config import SearchConfig
 from game_state import GameState
 from position_classifier import PositionClassifier
@@ -10,7 +10,7 @@ from position_classifier import PositionClassifier
 SYMBOLS: Final[Dict[int, str]] = {0: "⚪", 1: "🔴", -1: "🔵"}
 
 
-def play_game(player1: Agent, player2: Agent):
+def play_game(player1: NegamaxAgent, player2: NegamaxAgent):
     """Play a complete game between two agents"""
     state = GameState()
 
@@ -63,8 +63,8 @@ def get_human_move(state: GameState) -> int:
 
 def play_game_with_mode(
     mode: str,
-    player1: Agent,
-    player2: Optional[Agent] = None,
+    player1: NegamaxAgent,
+    player2: Optional[NegamaxAgent] = None,
     human_starts: bool = True,
 ):
     """Play a game based on selected mode"""
@@ -145,8 +145,8 @@ def main():
 
     # Create agents
     config = SearchConfig(MODEL_WEIGHT=0.7, NUM_ROLLOUTS=100)
-    agent1 = Agent(classifier=classifier, config=config)
-    agent2 = Agent(classifier=classifier, config=config)
+    agent1 = NegamaxAgent(classifier=classifier, config=config)
+    agent2 = NegamaxAgent(classifier=classifier, config=config)
 
     # Game mode selection
     print("\nWelcome to Connect 4!")
