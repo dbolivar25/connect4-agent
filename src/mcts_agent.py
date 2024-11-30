@@ -56,7 +56,7 @@ class MCTSAgent:
 
     def __init__(
         self,
-        simulation_time: float = 1.0,
+        simulation_time: float = 3.0,
         exploration_constant: float = math.sqrt(2),
         seed: Optional[int] = None,
     ):
