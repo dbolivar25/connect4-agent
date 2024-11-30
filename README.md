@@ -3,6 +3,7 @@
 <!--toc:start-->
 
 - [Connect 4 Agent using Negamax, Gradient Boosting, and Monte Carlo Methods](#connect-4-agent-using-negamax-gradient-boosting-and-monte-carlo-methods)
+  - [Demo](#demo)
   - [Features](#features)
   - [Technical Overview](#technical-overview)
     - [Core Components](#core-components)
@@ -22,6 +23,11 @@
   - [Project Structure](#project-structure)
   - [Acknowledgments](#acknowledgments)
   <!--toc:end-->
+
+## Demo
+
+1. ![Demo Video 1](https://asciinema.org/a/Hm669hw8VSazlWvaM6tknwvWZ)
+2. ![Demo Video 2](https://asciinema.org/a/uHWOATu8kjxBE5QAS6oJiZmf8)
 
 ## Features
 
