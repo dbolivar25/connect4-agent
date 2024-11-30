@@ -26,8 +26,9 @@
 
 ## Demo
 
-1. ![Demo Video 1](https://asciinema.org/a/Hm669hw8VSazlWvaM6tknwvWZ)
-2. ![Demo Video 2](https://asciinema.org/a/uHWOATu8kjxBE5QAS6oJiZmf8)
+1. ![Agent vs Agent Demo 1](https://asciinema.org/a/Hm669hw8VSazlWvaM6tknwvWZ)
+2. ![Agent vs Agent Demo 2](https://asciinema.org/a/uHWOATu8kjxBE5QAS6oJiZmf8)
+3. ![Evaluation Model Training](https://asciinema.org/a/P7yCVfh7JYdHdD0PYF3RSKAnx)
 
 ## Features
 
