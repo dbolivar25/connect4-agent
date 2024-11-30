@@ -1,18 +1,19 @@
+import os
+import pickle
+import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import HistGradientBoostingClassifier
-from sklearn.model_selection import train_test_split, cross_validate, RandomizedSearchCV
-from sklearn.metrics import classification_report
-from sklearn.utils import resample
-from sklearn.inspection import permutation_importance
-from scipy.stats import uniform, randint
-import pickle
-import os
-from typing import Tuple, Dict, Union, List, Optional
-from pathlib import Path
 import requests
+from scipy.stats import randint, uniform
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.inspection import permutation_importance
+from sklearn.metrics import classification_report
+from sklearn.model_selection import RandomizedSearchCV, cross_validate, train_test_split
+from sklearn.utils import resample
 from tqdm import tqdm
-import subprocess
 
 BEST_MAX_ITER = 490
 BEST_LEARNING_RATE = 0.34
