@@ -98,38 +98,18 @@ class GameState:
                 return player
 
         # Diagonal checks
-        for offset in range(-3, 1):
-            # Positive slope
-            if (
-                0 <= row + offset < GameConfig.HEIGHT - 3
-                and 0 <= col + offset < GameConfig.WIDTH - 3
-            ):
-                if np.all(
-                    np.array(
-                        [
-                            self.board[row + offset + i][col + offset + i]
-                            for i in range(4)
-                        ]
-                    )
-                    == player
+        # Check both positive and negative diagonals centered at the last move
+        for dr, dc in [(1, 1), (1, -1)]:  # Positive and negative slopes
+            # Check all possible 4-in-a-row containing the last move
+            for offset in range(-3, 1):
+                r, c = row - offset * dr, col - offset * dc
+                if (
+                    0 <= r <= GameConfig.HEIGHT - 4 * dr
+                    and 0 <= c <= GameConfig.WIDTH - 4 * abs(dc)
                 ):
-                    return player
-
-            # Negative slope
-            if (
-                3 <= row + offset < GameConfig.HEIGHT
-                and 0 <= col + offset < GameConfig.WIDTH - 3
-            ):
-                if np.all(
-                    np.array(
-                        [
-                            self.board[row + offset - i][col + offset + i]
-                            for i in range(4)
-                        ]
-                    )
-                    == player
-                ):
-                    return player
+                    diagonal = [self.board[r + i * dr][c + i * dc] for i in range(4)]
+                    if np.all(np.array(diagonal) == player):
+                        return player
 
         # Check for draw
         if not self.get_valid_moves():
