@@ -120,13 +120,13 @@ pip install -r requirements.txt
 ### Running with uv (recommended)
 
 ```bash
-uv run main.py
+uv run src/main.py
 ```
 
 ### Running with pip venv
 
 ```bash
-python main.py
+python src/main.py
 ```
 
 The game will prompt you to select a mode:
