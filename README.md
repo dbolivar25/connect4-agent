@@ -209,13 +209,10 @@ The AI uses a phase-based evaluation strategy:
 ## Project Structure
 
 ```bash
-├── agent.py                # AI agent implementation
-├── config.py              # Configuration parameters
-├── game_state.py          # Game state management
-├── main.py                # Main game loop
-├── position_classifier.py  # ML position evaluation
-├── models/                # Trained model storage
-└── data/                  # Dataset storage
+├── data/                # Position result dataset
+├── models/              # Trained model storage
+├── results/             # Agent evaluation results
+└── src/                 # Implementation source code
 ```
 
 ## Acknowledgments
