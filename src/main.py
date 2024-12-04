@@ -183,7 +183,7 @@ def main():
     elif choice == 3:
         play_game_with_mode(
             "agent_vs_agent",
-            MCTSAgent(simulation_time=3.0, seed=42),
+            MCTSAgent(simulation_time=5.0, seed=42),
             NegamaxAgent(classifier=classifier),
             player1_name="MCTS Agent",
             player2_name="Negamax Agent",
