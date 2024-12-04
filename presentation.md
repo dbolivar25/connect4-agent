@@ -19,7 +19,7 @@
 
 ### AI Techniques Used
 
-1. Negamax Search with α-β Pruning
+1. Negamax Search with $\alpha - \beta$ Pruning
 2. Machine Learning Position Evaluation using Gradient Boosting
 3. Monte Carlo Rollouts
 4. Hybrid Evaluation System
@@ -46,7 +46,7 @@
 
 #### Technical Implementation
 
-##### Negamax Search with α-β Pruning
+##### Negamax Search with $\alpha - \beta$ Pruning
 
 ###### Implementation Details
 
@@ -88,7 +88,7 @@ def _negamax(self, state: GameState, depth: int, alpha: float, beta: float) -> f
 
 3. **Move Ordering**
    - Center-out search pattern: [3, 2, 4, 1, 5, 0, 6]
-   - Optimizes α-β pruning efficiency
+   - Optimizes $\alpha - \beta$ pruning efficiency
    - Focuses on strategically important moves first
 
 ##### Machine Learning Position Evaluation
@@ -178,7 +178,7 @@ def _random_playout(self, state: GameState) -> float:
 
 ### Why These Techniques?
 
-1. **Negamax with α-β Pruning**
+1. **Negamax with $\alpha - \beta$ Pruning**
 
    - Efficient for tactical calculations
    - Proven effectiveness in game tree search
