@@ -660,6 +660,7 @@ game domains with distinct strategic and tactical elements.
 - Created efficient game state representation and management
 - Optimized search algorithms and caching strategies
 - Developed phase-based evaluation system
+- Compiled research findings
 
 #### Hugo Son
 
@@ -675,7 +676,6 @@ game domains with distinct strategic and tactical elements.
 - Handled project presentation and documentation
 - Created technical diagrams and visualizations
 - Prepared demonstration materials
-- Compiled research findings
 - Produced project documentation
 
 ### 9.2 External Resources
