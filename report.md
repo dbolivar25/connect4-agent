@@ -4,6 +4,8 @@ geometry: margin=1in
 
 # Report: Connect 4 Agent Using Negamax, Gradient Boosting, and Monte Carlo Methods
 
+## Authors: Daniel Bolivar, Hugo Son, and Veronica Ahn
+
 ## Table of Contents
 
 <!--toc:start-->
