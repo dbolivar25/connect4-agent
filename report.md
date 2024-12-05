@@ -546,10 +546,10 @@ agents. Against a random move agent, our system achieved a 100% win rate with an
 average game length of 12.7 moves. The earliest wins occurred at move 8,
 demonstrating strong tactical awareness.
 
-Testing against a pure Monte Carlo Tree Search agent (using 3 seconds per move)
+Testing against a pure Monte Carlo Tree Search agent (using 5 seconds per move)
 also resulted in a 100% win rate. These games averaged just 8.1 moves, showing
 our system's ability to quickly exploit tactical opportunities. Average move
-times remained consistent at 151 seconds.
+times remained consistent at around 5 seconds.
 
 Self-play testing revealed interesting characteristics. First player achieved an
 80% win rate across 20 games, with 10% draws. These games averaged 30.4 moves,
