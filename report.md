@@ -384,10 +384,10 @@ make each playout sophisticated.
 
 We change how much we rely on Monte Carlo evaluation as the game goes on:
 
-In early moves (1-9), we don't use Monte Carlo at all. We trust our machine
+In early moves (1-8), we don't use Monte Carlo at all. We trust our machine
 learning model completely for these positions.
 
-In the middle of the game (moves 10-12), we start mixing in Monte Carlo results.
+In the middle of the game (moves 9-12), we start mixing in Monte Carlo results.
 We begin by giving Monte Carlo a 30% weight in our evaluation, and this weight
 grows as positions get more complex.
 
@@ -402,8 +402,7 @@ total. The system uses very little memory.
 
 We found that running more playouts gives more stable results - the evaluations
 jump around less. We settled on 75 playouts because it gives reliable answers
-while staying within our time limits. In positions with forced tactical moves,
-our results are consistent more than 95% of the time.
+while staying within our time limits.
 
 ### 5.4 Statistical Properties
 
@@ -504,10 +503,10 @@ model evaluations since these are the most computationally expensive. The cache
 uses board positions as keys and stores pre-computed win/loss/draw
 probabilities.
 
-Testing showed this approach provides a ~15% speedup in typical game positions
-while maintaining a reasonable memory footprint. More sophisticated caching
-strategies were tested (including transposition tables) but did not provide
-sufficient benefit to justify their complexity in our time-constrained setting.
+Testing showed this approach maintained a reasonable memory footprint in typical
+game positions. More sophisticated caching strategies were tested (including
+transposition tables) but did not provide sufficient benefit to justify their
+complexity in our time-constrained setting.
 
 ### 6.5 Performance Characteristics
 
