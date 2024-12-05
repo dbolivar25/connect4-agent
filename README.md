@@ -173,13 +173,13 @@ NUM_ROLLOUTS = 75        # Number of Monte Carlo rollouts
 
 The AI uses a phase-based evaluation strategy:
 
-1.  **Early Game (moves 1-9)**
+1.  **Early Game (moves 1-8)**
 
     - Uses pure machine learning evaluation
     - Focus on strategic positioning and pattern recognition
     - Model has full confidence in this phase due to training data coverage
 
-2.  **Mid Game (moves 10-12)**
+2.  **Mid Game (moves 9-12)**
 
     - Hybrid evaluation with decaying ML weight:
 
@@ -204,7 +204,7 @@ The AI uses a phase-based evaluation strategy:
     - Piece clustering
     - Control of key positions
 - **Training Data**: UCI Connect 4 Dataset
-- **Performance**: ~85% prediction accuracy on validation set
+- **Performance**: ~90% prediction accuracy on validation set
 
 ## Project Structure
 
