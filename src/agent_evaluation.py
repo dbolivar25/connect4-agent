@@ -14,7 +14,7 @@ from position_classifier import PositionClassifier
 
 SYMBOLS: Final[Dict[int, str]] = {0: "⚪", 1: "🔴", -1: "🔵"}
 NUM_GAMES: Final[int] = 20
-MCTS_SIMULATION_TIME: Final[float] = 3.0  # seconds
+MCTS_SIMULATION_TIME: Final[float] = 150.0  # seconds
 MAX_WORKERS: Final[int] = 14  # Number of CPU cores
 
 
