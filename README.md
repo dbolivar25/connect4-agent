@@ -173,25 +173,25 @@ NUM_ROLLOUTS = 75        # Number of Monte Carlo rollouts
 
 The AI uses a phase-based evaluation strategy:
 
-1.  **Early Game (moves 1-8)**
+1. **Early Game (moves 1-8)**
 
-    - Uses pure machine learning evaluation
-    - Focus on strategic positioning and pattern recognition
-    - Model has full confidence in this phase due to training data coverage
+   - Uses pure machine learning evaluation
+   - Focus on strategic positioning and pattern recognition
+   - Model has full confidence in this phase due to training data coverage
 
-2.  **Mid Game (moves 9-12)**
+2. **Mid Game (moves 9-12)**
 
-    - Hybrid evaluation with decaying ML weight:
+   - Hybrid evaluation with decaying ML weight:
 
-      - ML position evaluation (starting at 70% weight and decreasing)
-      - Monte Carlo rollouts (starting at 30% weight and increasing)
+     - ML position evaluation (starting at 70% weight and decreasing)
+     - Monte Carlo rollouts (starting at 30% weight and increasing)
 
-    - Model weight decreases as positions become less similar to training data
+   - Model weight decreases as positions become less similar to training data
 
-3.  **Late Game (moves 13+)**
-    - Pure Monte Carlo rollouts
-    - 75 rollouts per position evaluation
-    - Model is not used as positions are too far from training data
+3. **Late Game (moves 13+)**
+   - Pure Monte Carlo rollouts
+   - 75 rollouts per position evaluation
+   - Model is not used as positions are too far from training data
 
 ### Machine Learning Model
 
