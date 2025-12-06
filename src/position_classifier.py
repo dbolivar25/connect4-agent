@@ -629,9 +629,6 @@ class PositionClassifier:
             - confidence
             - win/draw/loss probabilities
         """
-        features = self._board_to_feature_vector(board)
-        features = self._add_engineered_features(features)
-
         outcome, probs, conf = self.predict_board(board)
 
         return {
@@ -641,6 +638,35 @@ class PositionClassifier:
             "draw_probability": probs[1],
             "loss_probability": probs[0],
         }
+
+    def batch_analyze(
+        self, boards: List[np.ndarray]
+    ) -> List[Tuple[float, float, float]]:
+        """
+        Batch analyze multiple board positions efficiently.
+
+        Args:
+            boards: List of np.ndarray of shape (6, 7)
+
+        Returns:
+            List of (win_prob, loss_prob, draw_prob) tuples
+        """
+        if not boards:
+            return []
+
+        # Convert all boards to feature vectors
+        features_list = []
+        for board in boards:
+            features = self._board_to_feature_vector(board)
+            features = self._add_engineered_features(features)
+            features_list.append(features[0])  # _add_engineered_features returns 2D
+
+        # Stack into batch and predict
+        batch = np.vstack(features_list)
+        probabilities = self.clf.predict_proba(batch)
+
+        # Return as list of tuples (win, loss, draw)
+        return [(p[2], p[0], p[1]) for p in probabilities]
 
 
 def main():
