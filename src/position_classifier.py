@@ -1,5 +1,5 @@
 import os
-import pickle
+import joblib
 import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -512,7 +512,7 @@ class PositionClassifier:
         if save_path:
             os.makedirs(os.path.dirname(save_path), exist_ok=True)
             with open(save_path, "wb") as f:
-                pickle.dump(self.clf, f)
+                joblib.dump(self.clf, f)
             print(f"\nModel saved to {save_path}")
 
     def analyze_feature_importance(self, X, y, n_repeats=10):
@@ -586,7 +586,7 @@ class PositionClassifier:
     def load_model(self, model_path: str) -> None:
         """Load a previously trained model"""
         with open(model_path, "rb") as f:
-            self.clf = pickle.load(f)
+            self.clf = joblib.load(f)
 
     def predict_board(self, board: np.ndarray) -> Tuple[str, np.ndarray, float]:
         """
