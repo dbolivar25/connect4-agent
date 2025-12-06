@@ -71,14 +71,13 @@ class TranspositionTable:
 
 
 class NegamaxAgent:
-    """Negamax agent with iterative deepening, opening book, and ML evaluation."""
+    """Negamax agent with ML-guided move ordering and fast heuristic evaluation."""
 
-    _COLUMN_WEIGHTS = [1, 2, 4, 5, 4, 2, 1]
+    _COLUMN_WEIGHTS = [0, 1, 2, 3, 2, 1, 0]  # Center preference
 
     def __init__(self, classifier, time_limit: float = SearchConfig.TIME_LIMIT):
         self.classifier = classifier
         self.time_limit = time_limit
-        self.ml_cache: Dict[int, Tuple[float, float, float]] = {}
         self.tt = TranspositionTable()
         self.rng = random.Random()
         self.opening_book = get_opening_book()
@@ -87,6 +86,9 @@ class NegamaxAgent:
         self.start_time = 0.0
         self.nodes_searched = 0
         self.search_aborted = False
+
+        # ML-ordered moves for root (computed once per get_best_move call)
+        self._root_move_order: Optional[List[int]] = None
 
     def _time_remaining(self) -> float:
         """Get remaining search time."""
@@ -101,125 +103,109 @@ class NegamaxAgent:
             return True
         return False
 
-    def _get_model_evaluation(self, state: GameState) -> float:
-        """Get ML model evaluation normalized to [-1, 1] range."""
-        key = state.get_key()
+    def _fast_heuristic(self, state: GameState) -> float:
+        """
+        Ultra-fast heuristic evaluation (microseconds).
+        Returns score from current player's perspective.
+        """
+        score = 0.0
 
-        if key not in self.ml_cache:
-            analysis = self.classifier.analyze_position(state.board)
-            self.ml_cache[key] = (
-                analysis["win_probability"],
-                analysis["loss_probability"],
-                analysis["draw_probability"],
-            )
+        # Center control - pieces in center columns are better
+        # _position stores P1's pieces, (_mask ^ _position) stores P2's pieces
+        for col in range(7):
+            col_base = col * 7
+            col_weight = self._COLUMN_WEIGHTS[col]
+            for row in range(6):
+                bit_pos = col_base + row
+                if state._mask & (1 << bit_pos):
+                    weight = col_weight + row * 0.1
+                    if state._position & (1 << bit_pos):
+                        score += weight  # P1's piece
+                    else:
+                        score -= weight  # P2's piece
 
-        win_prob, loss_prob, _ = self.ml_cache[key]
-        score = win_prob - loss_prob
-        return score if state.current_player == 1 else -score
+        # Threat detection
+        # Current player's position for threat checking
+        current_pos = state._position if state.current_player == 1 else (state._mask ^ state._position)
+        opponent_pos = (state._mask ^ state._position) if state.current_player == 1 else state._position
 
-    def _batch_prefetch_children(self, state: GameState, moves: List[int]) -> None:
-        """Pre-evaluate all child positions using batched ML inference."""
-        uncached_states = []
-        uncached_keys = []
+        for col in range(7):
+            col_base = col * 7
+            for row in range(6):
+                bit_pos = col_base + row
+                if not (state._mask & (1 << bit_pos)):
+                    # Current player's threat
+                    test_pos = current_pos | (1 << bit_pos)
+                    if state._is_winning_position(test_pos):
+                        score += 20
+                    # Opponent's threat
+                    test_pos = opponent_pos | (1 << bit_pos)
+                    if state._is_winning_position(test_pos):
+                        score -= 20
+                    break
+
+        # Convert to current player's perspective
+        # score is currently from P1's perspective (positive = good for P1)
+        normalized = score / 50.0
+        return normalized if state.current_player == 1 else -normalized
+
+    def _ml_order_root_moves(self, state: GameState, moves: List[int]) -> List[int]:
+        """
+        Use ML model to order moves at root (one-time cost).
+        Returns moves sorted by ML evaluation (best first).
+        """
+        if len(moves) <= 1:
+            return moves
+
+        # Evaluate each child position with ML
+        move_scores = []
+        boards = []
+        valid_moves = []
 
         for move in moves:
             child = state.clone()
             child.make_move(move)
-            key = child.get_key()
-            if key not in self.ml_cache:
-                uncached_states.append(child)
-                uncached_keys.append(key)
+            boards.append(child.board)
+            valid_moves.append(move)
 
-        if not uncached_states:
-            return
-
-        # Batch evaluate all uncached positions
-        boards = [s.board for s in uncached_states]
+        # Batch ML evaluation
         results = self.classifier.batch_analyze(boards)
 
-        # Store in cache
-        for key, (win_prob, loss_prob, draw_prob) in zip(uncached_keys, results):
-            self.ml_cache[key] = (win_prob, loss_prob, draw_prob)
+        for move, (win_prob, loss_prob, draw_prob) in zip(valid_moves, results):
+            # From parent's perspective: we want child positions where opponent is worse
+            # Higher loss_prob for opponent = better for us
+            # Also consider draw as partial success
+            score = loss_prob + 0.5 * draw_prob - win_prob
+            move_scores.append((move, score))
 
-    def _smart_playout(self, state: GameState) -> float:
-        """Play out with smart heuristics: take wins, block threats, prefer center."""
-        current = state.clone()
-        starting_player = current.current_player
+        # Sort by score (highest first)
+        move_scores.sort(key=lambda x: x[1], reverse=True)
 
-        while True:
-            result = current.check_win()
-            if result is not None:
-                return result * starting_player
+        # If all scores are the same (ML overconfident), use center-out ordering
+        if len(set(round(s, 2) for _, s in move_scores)) == 1:
+            logger.info("ML ordering: all scores equal, using center-out")
+            return [m for m in [3, 2, 4, 1, 5, 0, 6] if m in moves]
 
-            moves = current.get_valid_moves()
-            if not moves:
-                return 0
+        logger.info(f"ML move ordering: {[(m+1, f'{s:.2f}') for m, s in move_scores]}")
 
-            # Take immediate win
-            winning_move = current.has_winning_move()
-            if winning_move is not None:
-                current.make_move(winning_move)
-                continue
+        return [m for m, _ in move_scores]
 
-            # Block immediate threat
-            blocking_move = None
-            for col in moves:
-                col_base = col * 7
-                for row in range(6):
-                    bit_pos = col_base + row
-                    if not (current._mask & (1 << bit_pos)):
-                        opp_position = (current._mask ^ current._position) | (1 << bit_pos)
-                        if current._is_winning_position(opp_position):
-                            blocking_move = col
-                        break
-                if blocking_move is not None:
-                    break
-
-            if blocking_move is not None:
-                current.make_move(blocking_move)
-                continue
-
-            # Weighted random (prefer center)
-            weights = [self._COLUMN_WEIGHTS[m] for m in moves]
-            total = sum(weights)
-            r = self.rng.random() * total
-            cumulative = 0
-            for i, m in enumerate(moves):
-                cumulative += weights[i]
-                if r <= cumulative:
-                    current.make_move(m)
-                    break
-
-        return 0
-
-    def _evaluate_position(self, state: GameState) -> float:
-        """Evaluate position based on game phase."""
-        if state.ply_count < SearchConfig.MODEL_ONLY_PHASE:
-            return self._get_model_evaluation(state)
-
-        elif state.ply_count <= SearchConfig.HYBRID_PHASE_END:
-            model_score = self._get_model_evaluation(state)
-            rollout_sum = sum(
-                self._smart_playout(state.clone())
-                for _ in range(SearchConfig.NUM_ROLLOUTS)
-            )
-            rollout_score = rollout_sum / SearchConfig.NUM_ROLLOUTS
-            return float(
-                SearchConfig.MODEL_WEIGHT * model_score
-                + (1 - SearchConfig.MODEL_WEIGHT) * rollout_score
-            )
-
-        else:
-            rollout_sum = sum(
-                self._smart_playout(state.clone())
-                for _ in range(SearchConfig.NUM_ROLLOUTS)
-            )
-            return rollout_sum / SearchConfig.NUM_ROLLOUTS
-
-    def _order_moves(self, state: GameState, moves: List[int], tt_move: Optional[int]) -> List[int]:
+    def _order_moves(self, state: GameState, moves: List[int], tt_move: Optional[int], is_root: bool = False) -> List[int]:
         """Order moves for better alpha-beta pruning."""
         if not moves:
             return moves
+
+        # At root, use pre-computed ML ordering
+        if is_root and self._root_move_order is not None:
+            ordered = []
+            # TT move still goes first if available
+            if tt_move is not None and tt_move in moves:
+                ordered.append(tt_move)
+            # Then ML-ordered moves
+            for m in self._root_move_order:
+                if m in moves and m not in ordered:
+                    ordered.append(m)
+            return ordered
 
         ordered = []
 
@@ -246,20 +232,20 @@ class NegamaxAgent:
                     break
 
         # 4. Rest in center-out order
-        for col in moves:
-            if col not in ordered:
+        for col in [3, 2, 4, 1, 5, 0, 6]:
+            if col in moves and col not in ordered:
                 ordered.append(col)
 
         return ordered
 
     def _negamax(
-        self, state: GameState, depth: int, alpha: float, beta: float
+        self, state: GameState, depth: int, alpha: float, beta: float, is_root: bool = False
     ) -> Tuple[float, Optional[int]]:
-        """Negamax with alpha-beta, TT, and iterative deepening support."""
+        """Negamax with alpha-beta, TT, and fast heuristic."""
         self.nodes_searched += 1
 
-        # Time check (every 1000 nodes)
-        if self.nodes_searched % 1000 == 0 and self._should_abort():
+        # Time check (every 2000 nodes for speed)
+        if self.nodes_searched % 2000 == 0 and self._should_abort():
             return 0, None
 
         alpha_orig = alpha
@@ -267,7 +253,6 @@ class NegamaxAgent:
         # Terminal check
         result = state.check_win()
         if result is not None:
-            # Return high score adjusted by depth (prefer faster wins)
             if result == 0:
                 return 0, None
             score = (SCORE_WIN - state.ply_count) * result * state.current_player
@@ -283,17 +268,13 @@ class NegamaxAgent:
         if tt_result is not None:
             return tt_result
 
-        # Leaf evaluation
+        # Leaf evaluation with FAST heuristic
         if depth <= 0:
-            return self._evaluate_position(state), None
+            return self._fast_heuristic(state), None
 
         # Get TT move for ordering
         tt_move = self.tt.get_best_move(tt_key)
-        ordered_moves = self._order_moves(state, moves, tt_move)
-
-        # Batch prefetch children ML evaluations at shallow depths
-        if depth <= 2 and state.ply_count < SearchConfig.MODEL_ONLY_PHASE:
-            self._batch_prefetch_children(state, ordered_moves)
+        ordered_moves = self._order_moves(state, moves, tt_move, is_root)
 
         best_score = float("-inf")
         best_move = ordered_moves[0]
@@ -304,7 +285,7 @@ class NegamaxAgent:
 
             next_state = state.clone()
             next_state.make_move(move)
-            score, _ = self._negamax(next_state, depth - 1, -beta, -alpha)
+            score, _ = self._negamax(next_state, depth - 1, -beta, -alpha, is_root=False)
             score = -score
 
             if score > best_score:
@@ -329,11 +310,16 @@ class NegamaxAgent:
 
     def _iterative_deepening(self, state: GameState) -> Tuple[int, float, int]:
         """
-        Iterative deepening search.
+        Iterative deepening search with ML-guided root move ordering.
         Returns: (best_move, best_score, depth_reached)
         """
         valid_moves = state.get_valid_moves()
-        best_move = valid_moves[0]
+
+        # Use ML to order root moves ONCE at the start
+        logger.info("Computing ML move ordering at root...")
+        self._root_move_order = self._ml_order_root_moves(state, valid_moves)
+
+        best_move = self._root_move_order[0] if self._root_move_order else valid_moves[0]
         best_score = float("-inf")
         depth_reached = 0
 
@@ -343,7 +329,7 @@ class NegamaxAgent:
 
             self.nodes_searched = 0
             score, move = self._negamax(
-                state, depth, float("-inf"), float("inf")
+                state, depth, float("-inf"), float("inf"), is_root=True
             )
 
             # Only update if search completed or we have a valid result
@@ -367,9 +353,10 @@ class NegamaxAgent:
         return best_move, best_score, depth_reached
 
     def get_best_move(self, state: GameState) -> int:
-        """Find best move using opening book + iterative deepening."""
+        """Find best move using opening book + ML-guided iterative deepening."""
         self.start_time = time.time()
         self.search_aborted = False
+        self._root_move_order = None
 
         valid_moves = state.get_valid_moves()
         if not valid_moves:
@@ -399,7 +386,7 @@ class NegamaxAgent:
                         return move
                     break
 
-        # Iterative deepening search
+        # Iterative deepening search with ML-guided ordering
         logger.info(f"\nIterative deepening (time limit: {self.time_limit}s)...")
         logger.info(f"Game phase: Move {state.ply_count + 1}")
 
@@ -413,6 +400,6 @@ class NegamaxAgent:
         return best_move
 
     def clear_cache(self):
-        """Clear ML cache and transposition table."""
-        self.ml_cache.clear()
+        """Clear transposition table."""
         self.tt.clear()
+        self._root_move_order = None
